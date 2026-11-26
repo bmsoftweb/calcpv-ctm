@@ -143,6 +143,28 @@ export async function fetchCustoPv(idPro: number): Promise<{ custo: number; ipi:
   return get(`/api/calcpv/custo/${idPro}`);
 }
 
+export interface ProdutoPv {
+  id: number;
+  descricao: string;
+  marca: string;
+  classe: string;
+  un: string;
+  markup: number;
+  pvAtual: number;
+}
+
+/** Produtos ativos por código/descrição, marca e classe, para calcular o PV sem abrir uma compra */
+export async function fetchProdutosPv(f: { q?: string; marca?: string; classe?: string }): Promise<ProdutoPv[]> {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(f)) if (v?.trim()) p.set(k, v.trim());
+  return get(`/api/calcpv/produtos?${p}`);
+}
+
+/** Marcas e classes para as listas da pesquisa de produtos */
+export async function fetchFiltrosProdutosPv(): Promise<{ marcas: string[]; classes: string[] }> {
+  return get('/api/calcpv/filtros-produtos');
+}
+
 /** Grava o markup (LUCRO_VENDA_P1) e o PV (PRECOVENDA1); com a compra, marca os itens e devolve a situação dela */
 export async function salvarPv(idPro: number, markup: number, pv: number, idCompra?: number): Promise<{ situacao?: string }> {
   return send('PUT', `/api/calcpv/produtos/${idPro}`, { markup, pv, idCompra });

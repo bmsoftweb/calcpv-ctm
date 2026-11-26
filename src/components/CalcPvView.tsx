@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Calculator, CheckCheck, Eye, EyeOff, Loader2, Minus, Plus, Save, Undo2 } from 'lucide-react';
-import { fetchComprasPv, fetchItensCompraPv, fetchCustoPv, salvarPv, salvarQtdComprasPv, marcarCalculadoPv, ocultarFornecedorPv, CompraPv, ItemCompraPv } from '../services/api';
+import { ArrowLeft, Calculator, CheckCheck, Eye, EyeOff, Loader2, Minus, Plus, Save, Search, Undo2 } from 'lucide-react';
+import { fetchProdutosPv, fetchFiltrosProdutosPv, ProdutoPv, fetchComprasPv, fetchItensCompraPv, fetchCustoPv, salvarPv, salvarQtdComprasPv, marcarCalculadoPv, ocultarFornecedorPv, CompraPv, ItemCompraPv } from '../services/api';
 import { formatCurrencyBRL, formatDateBR, formatDecimal, formatQtd, hojeISO } from '../utils/formatters';
 import { useRefreshDaTela } from '@/components/LayoutApp';
 import { ListaCrm } from '@/components/ListaCrm';
@@ -53,11 +53,12 @@ const notaTexto = (c: CompraPv) => `NF ${c.numero}${c.serie ? `/${c.serie}` : ''
  */
 const PainelPv: React.FC<{
   item: ItemCompraPv | null;
-  idCompra: number;
+  /** sem compra (produto pesquisado pelo código): grava só o preço, sem marcar nota */
+  idCompra?: number;
   onErro: (m: string) => void;
   onGravado: (item: ItemCompraPv, pv: number, situacao: string) => void;
-  /** marca o produto como calculado mantendo o preço atual do cadastro */
-  onManter: (item: ItemCompraPv) => void;
+  /** marca o produto como calculado mantendo o preço atual do cadastro (só com compra) */
+  onManter?: (item: ItemCompraPv) => void;
 }> = ({ item, idCompra, onErro, onGravado, onManter }) => {
   const [carregando, setCarregando] = useState(false);
   const [v, setV] = useState({ custo: '', ipi: '', frete: '', st: '', markup: '' });
@@ -196,7 +197,7 @@ const PainelPv: React.FC<{
               {salvando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               Gravar markup e preço de venda
             </button>
-            {!item.calculado && (
+            {onManter && !item.calculado && (
               <button
                 type="button"
                 onClick={() => onManter(item)}
@@ -256,7 +257,15 @@ const PainelPv: React.FC<{
  * As duas ficam montadas (só a ativa aparece), então voltar às compras não perde a posição.
  */
 export const CalcPvView: React.FC = () => {
-  const [aba, setAba] = useState<'compras' | 'itens'>('compras');
+  const [aba, setAba] = useState<'compras' | 'itens' | 'produto'>('compras');
+  /** pesquisa de produtos (código/descrição, marca, classe), sem passar pelas compras */
+  const [pq, setPq] = useState('');
+  const [pMarca, setPMarca] = useState('');
+  const [pClasse, setPClasse] = useState('');
+  const [opcoes, setOpcoes] = useState<{ marcas: string[]; classes: string[] } | null>(null);
+  const [produtos, setProdutos] = useState<ProdutoPv[]>([]);
+  const [buscando, setBuscando] = useState(false);
+  const [produto, setProduto] = useState<ItemCompraPv | null>(null);
   const [d1, setD1] = useState(() => hojeISO(-30));
   const [d2, setD2] = useState(() => hojeISO());
   const [compras, setCompras] = useState<CompraPv[]>([]);
@@ -346,6 +355,54 @@ export const CalcPvView: React.FC = () => {
     }
   };
 
+  // listas de marcas e classes: carregadas na primeira vez que a pesquisa de produtos abre
+  useEffect(() => {
+    if (aba !== 'produto' || opcoes) return;
+    fetchFiltrosProdutosPv()
+      .then(setOpcoes)
+      .catch((e) => setErro(e.message || 'Erro ao carregar as marcas e classes.'));
+  }, [aba, opcoes]);
+
+  const comoItem = (p: ProdutoPv): ItemCompraPv => ({ id: p.id, item: 0, idPro: p.id, descricao: p.descricao, qtd: 0, un: p.un, custo: 0, total: 0, pvAtual: p.pvAtual, calculado: false });
+
+  /** Abre a pesquisa de produtos; com algum filtro, já pesquisa e abre o cálculo do 1º */
+  const pesquisarProdutos = async () => {
+    setAba('produto');
+    if (!pq.trim() && !pMarca.trim() && !pClasse.trim()) return;
+    try {
+      setBuscando(true);
+      const lista = await fetchProdutosPv({ q: pq, marca: pMarca, classe: pClasse });
+      setProdutos(lista);
+      setProduto(lista[0] ? comoItem(lista[0]) : null);
+    } catch (err: any) {
+      setErro(err.message || 'Erro ao pesquisar os produtos.');
+    } finally {
+      setBuscando(false);
+    }
+  };
+
+  const campoPesquisa = (
+    <input
+      value={pq}
+      onChange={(e) => setPq(e.target.value)}
+      onKeyDown={(e) => e.key === 'Enter' && pesquisarProdutos()}
+      placeholder="Código ou descrição"
+      title="Pesquisar produtos pelo código ou parte da descrição, sem abrir uma compra (Enter pesquisa)"
+      className={`${INPUT_CLASS} !w-44`}
+    />
+  );
+  const botaoPesquisa = (
+    <button
+      type="button"
+      onClick={pesquisarProdutos}
+      disabled={buscando}
+      title="Pesquisar produtos"
+      className="h-[34px] w-[34px] shrink-0 rounded-md border border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 flex items-center justify-center cursor-pointer disabled:opacity-50"
+    >
+      {buscando ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+    </button>
+  );
+
   const gravado = (it: ItemCompraPv, pv: number, situacao: string) => {
     // O mesmo produto pode aparecer em mais de um item da nota: todos ficam calculados
     setItens((lista) => lista.map((x) => (x.idPro === it.idPro ? { ...x, pvAtual: pv, calculado: true } : x)));
@@ -367,6 +424,10 @@ export const CalcPvView: React.FC = () => {
           onEditar={(c: CompraPv) => abrirCompra(c)}
           barraExtra={
             <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-1 shrink-0">
+                {campoPesquisa}
+                {botaoPesquisa}
+              </div>
               <span className="text-[11px] text-stone-400">Entrada de</span>
               <div className="w-36">
                 <DateField value={d1} onChange={setD1} required className={INPUT_CLASS} />
@@ -475,6 +536,57 @@ export const CalcPvView: React.FC = () => {
           <PainelPv item={item} idCompra={compra.id} onErro={setErro} onGravado={gravado} onManter={(i) => marcarCalculado(i, true)} />
         </div>
       )}
+
+      <div className={aba === 'produto' ? 'flex-1 flex flex-col lg:flex-row min-h-0 min-w-0' : 'hidden'}>
+        <ListaCrm
+          className="flex-1 min-w-0"
+          id="calcpv-produtos"
+          linhas={produtos}
+          carregando={buscando}
+          chave={(p) => p.id}
+          selecionada={produto?.idPro ?? null}
+          onClique={(p: ProdutoPv) => setProduto(comoItem(p))}
+          barraExtra={
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setAba('compras')}
+                className="h-[34px] px-3 text-xs font-semibold rounded-md border border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 flex items-center gap-1.5 cursor-pointer shrink-0"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" /> Compras
+              </button>
+              {campoPesquisa}
+              <div className="w-40">
+                <CampoLista value={pMarca} onChange={setPMarca} opcoes={opcoes?.marcas ?? []} placeholder="Todas as marcas" title="Marca: digite o início ou escolha na lista" className={INPUT_CLASS} />
+              </div>
+              <div className="w-48">
+                <CampoLista value={pClasse} onChange={setPClasse} opcoes={opcoes?.classes ?? []} placeholder="Todas as classes" title="Classe: digite parte do código ou da descrição, ou escolha na lista" className={INPUT_CLASS} />
+              </div>
+              {botaoPesquisa}
+            </div>
+          }
+          vazio={pq || pMarca || pClasse ? 'Nenhum produto ativo com estes filtros.' : 'Informe o código, a descrição, a marca ou a classe e pesquise.'}
+          colunas={[
+            { key: 'id', label: 'Código', alinhar: 'numero', largura: 80 },
+            { key: 'descricao', label: 'Descrição do produto', largura: 320 },
+            { key: 'marca', label: 'Marca', largura: 140 },
+            { key: 'classe', label: 'Classe', largura: 200 },
+            { key: 'un', label: 'Un', alinhar: 'centro', largura: 60, render: (p) => p.un || '–' },
+            { key: 'markup', label: '% Markup', alinhar: 'numero', largura: 100, render: (p) => formatDecimal(p.markup, 2) },
+            { key: 'pvAtual', label: 'PV atual', alinhar: 'numero', largura: 100, render: (p) => formatDecimal(p.pvAtual, 2) },
+          ]}
+          acoes={(p) => <BotaoAcao icone={Calculator} titulo="Calcular PV" descricao="Calcular o preço de venda pelas últimas compras e o markup" onClick={() => setProduto(comoItem(p))} />}
+        />
+        <PainelPv
+          item={produto}
+          onErro={setErro}
+          onGravado={(it, pv) => {
+            setProdutos((lista) => lista.map((x) => (x.id === it.idPro ? { ...x, pvAtual: pv } : x)));
+            setProduto((x) => (x ? { ...x, pvAtual: pv } : x));
+            setSucesso(`Preço de venda de "${it.descricao}" gravado: ${formatCurrencyBRL(pv)}.`);
+          }}
+        />
+      </div>
 
       {erro && <AvisoErro mensagem={erro} onFechar={() => setErro('')} />}
       {sucesso && <AvisoErro mensagem={sucesso} tom="sucesso" onFechar={() => setSucesso('')} />}

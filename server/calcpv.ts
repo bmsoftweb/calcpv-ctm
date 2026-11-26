@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { consultar, consultarUm, executar, sqlInteiro, sqlNumero, sqlData, hojeISO, BmapiError } from './bmapi.js';
+import { consultar, consultarUm, executar, sqlInteiro, sqlNumero, sqlData, sqlTexto, hojeISO, BmapiError } from './bmapi.js';
 import { config } from './config.js';
 
 /**
@@ -186,6 +186,63 @@ export function createCalcPvRouter() {
         `UPDATE ENTRADASPRODUTOS SET OP_FLAG = '${req.body?.calculado ? 'C' : ''}' WHERE ID_NF = ${sqlInteiro(idCompra)} AND ID_PRODUTO = ${sqlInteiro(req.params.idPro)}`,
       );
       res.json({ ok: true, situacao: await atualizarSituacaoCompra(idCompra) });
+    } catch (err: any) {
+      res.status(err?.status || 500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * GET /api/calcpv/produtos?q=&marca=&classe= : produtos ativos para calcular o PV sem abrir uma compra.
+   * q = código (só dígitos) ou trecho da descrição; marca = início da marca; classe = "COD - DESCRIÇÃO" da lista
+   * ou trecho do código/descrição da classe. Pelo menos um filtro.
+   */
+  router.get('/calcpv/produtos', async (req: Request, res: Response) => {
+    try {
+      const q = String(req.query.q ?? '').trim().toUpperCase();
+      const marca = String(req.query.marca ?? '').trim().toUpperCase();
+      const classe = String(req.query.classe ?? '').trim().toUpperCase();
+      if (!q && !marca && !classe) throw new BmapiError('Informe o código, a descrição, a marca ou a classe.', 400);
+      const filtros = ["A.ATIVO = 'S'"];
+      if (q) filtros.push(/^\d{1,9}$/.test(q) ? `A.ID = ${sqlInteiro(q)}` : `UPPER(A.DESCRICAO) LIKE ${sqlTexto(`%${q}%`)}`);
+      if (marca) filtros.push(`UPPER(A.MARCA) LIKE ${sqlTexto(`${marca}%`)}`);
+      if (classe) {
+        const cod = classe.includes(' - ') ? classe.slice(0, classe.indexOf(' - ')).trim() : '';
+        filtros.push(cod ? `UPPER(A.CLASSE) = ${sqlTexto(cod)}` : `(UPPER(A.CLASSE) LIKE ${sqlTexto(`${classe}%`)} OR UPPER(X.DESCRICAO) LIKE ${sqlTexto(`%${classe}%`)})`);
+      }
+      // ponytail: TOP 500; paginação no servidor se uma marca/classe passar disso
+      const rows = await consultar(
+        `SELECT A.ID id, A.DESCRICAO descricao, A.MARCA marca, A.CLASSE classe, X.DESCRICAO desc_classe,
+                A.UNVENDA un, A.LUCRO_VENDA_P1 markup, A.PRECOVENDA1 pv
+           FROM PRODUTOSPRINCIPAL A
+           LEFT JOIN PRODUTOSCLASSE X ON X.CLASSE = A.CLASSE
+          WHERE ${filtros.join(' AND ')}
+          ORDER BY descricao TOP 500`,
+      );
+      res.json(rows.map((r) => ({
+        id: Number(r.id),
+        descricao: String(r.descricao || '').trim(),
+        marca: String(r.marca || '').trim(),
+        classe: [String(r.classe || '').trim(), String(r.desc_classe || '').trim()].filter(Boolean).join(' - '),
+        un: String(r.un || '').trim(),
+        markup: Number(r.markup || 0),
+        pvAtual: Number(r.pv || 0),
+      })));
+    } catch (err: any) {
+      res.status(err?.status || 500).json({ error: err.message });
+    }
+  });
+
+  /** GET /api/calcpv/filtros-produtos : marcas dos produtos ativos e classes ("COD - DESCRIÇÃO"), para as listas */
+  router.get('/calcpv/filtros-produtos', async (_req: Request, res: Response) => {
+    try {
+      const [marcas, classes] = await Promise.all([
+        consultar(`SELECT DISTINCT MARCA marca FROM PRODUTOSPRINCIPAL WHERE ATIVO = 'S' AND MARCA <> '' ORDER BY marca`),
+        consultar(`SELECT CLASSE classe, DESCRICAO descricao FROM PRODUTOSCLASSE ORDER BY classe`),
+      ]);
+      res.json({
+        marcas: [...new Set(marcas.map((r) => String(r.marca || '').trim()).filter(Boolean))],
+        classes: classes.map((r) => [String(r.classe || '').trim(), String(r.descricao || '').trim()].filter(Boolean).join(' - ')).filter(Boolean),
+      });
     } catch (err: any) {
       res.status(err?.status || 500).json({ error: err.message });
     }
