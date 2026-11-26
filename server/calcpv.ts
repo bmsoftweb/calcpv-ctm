@@ -38,7 +38,7 @@ export function createCalcPvRouter() {
       if (d1 === 'NULL' || d2 === 'NULL') throw new BmapiError('Informe o período.', 400);
       // ponytail: TOP 1000 por período; paginação no servidor se um período passar disso
       const rows = await consultar(
-        `SELECT M.ID id, M.NUMERO numero, M.SERIE serie, M.DATA_EMISSAO data_emissao, M.DATA_ENTRADA data_entrada,
+        `SELECT M.ID id, M.NUMERO numero, M.SERIE serie, M.CFOP cfop, M.DATA_EMISSAO data_emissao, M.DATA_ENTRADA data_entrada,
                 M.TOTAL_NOTA total, M.TP_ASSINANTE situacao, F.ID id_fornec, F.NOME fornecedor, F.TIPO_CREDIARIO oculto
          FROM ENTRADASM M
          LEFT JOIN PESSOAS F ON F.ID = M.ID_FORNEC
@@ -59,6 +59,7 @@ export function createCalcPvRouter() {
         id: Number(r.id),
         numero: Number(r.numero || 0),
         serie: String(r.serie || '').trim(),
+        cfop: String(r.cfop || '').trim(),
         dataEmissao: r.data_emissao ? String(r.data_emissao).slice(0, 10) : null,
         dataEntrada: r.data_entrada ? String(r.data_entrada).slice(0, 10) : null,
         total: Number(r.total || 0),
@@ -174,6 +175,22 @@ export function createCalcPvRouter() {
    * PUT /api/calcpv/produtos/:id : grava o markup (LUCRO_VENDA_P1) e o PV calculado (PRECOVENDA1).
    * Com idCompra, marca os itens do produto na nota (OP_FLAG = 'C') e recalcula a situação da compra.
    */
+  /**
+   * PUT /api/calcpv/compras/:id/produtos/:idPro/calculado : marca (ou desmarca) o produto como calculado na nota
+   * sem gravar preço — para quando o preço atual do cadastro fica como está. Recalcula a situação da compra.
+   */
+  router.put('/calcpv/compras/:id/produtos/:idPro/calculado', async (req: Request, res: Response) => {
+    try {
+      const idCompra = Number(req.params.id);
+      await executar(
+        `UPDATE ENTRADASPRODUTOS SET OP_FLAG = '${req.body?.calculado ? 'C' : ''}' WHERE ID_NF = ${sqlInteiro(idCompra)} AND ID_PRODUTO = ${sqlInteiro(req.params.idPro)}`,
+      );
+      res.json({ ok: true, situacao: await atualizarSituacaoCompra(idCompra) });
+    } catch (err: any) {
+      res.status(err?.status || 500).json({ error: err.message });
+    }
+  });
+
   /** PUT /api/calcpv/produtos/:id/compras : grava no produto quantas últimas compras entram no custo (DENSIDADE) */
   router.put('/calcpv/produtos/:id/compras', async (req: Request, res: Response) => {
     try {

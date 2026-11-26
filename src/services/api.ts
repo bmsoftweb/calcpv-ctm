@@ -96,6 +96,7 @@ export interface CompraPv {
   id: number;
   numero: number;
   serie: string;
+  cfop: string;
   dataEmissao: string | null;
   dataEntrada: string | null;
   total: number;
@@ -150,4 +151,9 @@ export async function salvarPv(idPro: number, markup: number, pv: number, idComp
 /** Grava no produto quantas últimas compras entram no custo (PRODUTOSPRINCIPAL.DENSIDADE) */
 export async function salvarQtdComprasPv(idPro: number, qtd: number): Promise<void> {
   await send('PUT', `/api/calcpv/produtos/${idPro}/compras`, { qtd });
+}
+
+/** Marca (ou desmarca) o produto como calculado na compra sem gravar preço; devolve a nova situação da compra */
+export async function marcarCalculadoPv(idCompra: number, idPro: number, calculado: boolean): Promise<{ situacao: string }> {
+  return send('PUT', `/api/calcpv/compras/${idCompra}/produtos/${idPro}/calculado`, { calculado });
 }

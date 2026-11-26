@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Calculator, Eye, EyeOff, Loader2, Minus, Plus, Save } from 'lucide-react';
-import { fetchComprasPv, fetchItensCompraPv, fetchCustoPv, salvarPv, salvarQtdComprasPv, ocultarFornecedorPv, CompraPv, ItemCompraPv } from '../services/api';
+import { ArrowLeft, Calculator, CheckCheck, Eye, EyeOff, Loader2, Minus, Plus, Save, Undo2 } from 'lucide-react';
+import { fetchComprasPv, fetchItensCompraPv, fetchCustoPv, salvarPv, salvarQtdComprasPv, marcarCalculadoPv, ocultarFornecedorPv, CompraPv, ItemCompraPv } from '../services/api';
 import { formatCurrencyBRL, formatDateBR, formatDecimal, formatQtd, hojeISO } from '../utils/formatters';
 import { useRefreshDaTela } from '@/components/LayoutApp';
 import { ListaCrm } from '@/components/ListaCrm';
@@ -9,6 +9,7 @@ import { BotaoAcao } from '@/components/MenuAcoes';
 import { AvisoErro } from '@/components/AvisoErro';
 import { NumberField } from './NumberField';
 import { Toggle } from './Toggle';
+import { CampoLista } from './CampoLista';
 import { DateField } from './DateField';
 
 /** Custo total = custo × (1 + %IPI + %frete + %ST); PV = custo total × (1 + markup%). Ex.: 100 com markup 80% = 180,00 */
@@ -55,7 +56,9 @@ const PainelPv: React.FC<{
   idCompra: number;
   onErro: (m: string) => void;
   onGravado: (item: ItemCompraPv, pv: number, situacao: string) => void;
-}> = ({ item, idCompra, onErro, onGravado }) => {
+  /** marca o produto como calculado mantendo o preço atual do cadastro */
+  onManter: (item: ItemCompraPv) => void;
+}> = ({ item, idCompra, onErro, onGravado, onManter }) => {
   const [carregando, setCarregando] = useState(false);
   const [v, setV] = useState({ custo: '', ipi: '', frete: '', st: '', markup: '' });
   const [salvando, setSalvando] = useState(false);
@@ -193,6 +196,17 @@ const PainelPv: React.FC<{
               {salvando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               Gravar markup e preço de venda
             </button>
+            {!item.calculado && (
+              <button
+                type="button"
+                onClick={() => onManter(item)}
+                title="Marca o produto como calculado nesta compra sem alterar o preço do cadastro"
+                className="w-full h-9 -mt-1 text-xs font-semibold text-marca-700 dark:text-marca-300 border border-marca-200 dark:border-marca-800 hover:bg-marca-50 dark:hover:bg-marca-950/40 rounded-lg flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <CheckCheck className="w-4 h-4" />
+                Manter preço atual ({formatCurrencyBRL(item.pvAtual)})
+              </button>
+            )}
             <div className="pt-3">
               <div className="flex items-center justify-between mb-1.5">
                 <p className={LABEL_CLASS}>Últimas compras do produto</p>
@@ -271,10 +285,13 @@ export const CalcPvView: React.FC = () => {
     }
   }, [d1, d2]);
 
-  const carregarItens = useCallback(async (c: CompraPv) => {
+  const carregarItens = useCallback(async (c: CompraPv, abrirPrimeiro = false) => {
     try {
       setCarregandoItens(true);
-      setItens(await fetchItensCompraPv(c.id));
+      const lista = await fetchItensCompraPv(c.id);
+      setItens(lista);
+      // ao abrir a nota, o cálculo já vem no 1º item com produto
+      if (abrirPrimeiro) setItem(lista.find((i) => i.idPro > 0) ?? null);
     } catch (err: any) {
       setErro(err.message || 'Erro ao carregar os produtos da compra.');
     } finally {
@@ -300,7 +317,7 @@ export const CalcPvView: React.FC = () => {
     setCompra(c);
     setItem(null);
     setItens([]);
-    carregarItens(c);
+    carregarItens(c, true);
   };
 
   const ocultarFornecedor = async (c: CompraPv, ocultar: boolean) => {
@@ -311,6 +328,21 @@ export const CalcPvView: React.FC = () => {
       setSucesso(ocultar ? `As notas de "${c.fornecedor}" não serão mais listadas.` : `As notas de "${c.fornecedor}" voltam a ser listadas.`);
     } catch (err: any) {
       setErro(err.message || 'Erro ao gravar o fornecedor.');
+    }
+  };
+
+  /** Marca/desmarca o produto como calculado na compra sem gravar preço (preço do cadastro fica como está) */
+  const marcarCalculado = async (it: ItemCompraPv, calculado: boolean) => {
+    if (!compra) return;
+    try {
+      const { situacao } = await marcarCalculadoPv(compra.id, it.idPro, calculado);
+      setItens((lista) => lista.map((x) => (x.idPro === it.idPro ? { ...x, calculado } : x)));
+      setItem((x) => (x && x.idPro === it.idPro ? { ...x, calculado } : x));
+      setCompras((lista) => lista.map((c) => (c.id === compra.id ? { ...c, situacao } : c)));
+      setCompra((c) => (c ? { ...c, situacao } : c));
+      setSucesso(calculado ? `"${it.descricao}" marcado como calculado (preço mantido).` : `"${it.descricao}" voltou a ficar pendente.`);
+    } catch (err: any) {
+      setErro(err.message || 'Erro ao marcar o produto.');
     }
   };
 
@@ -344,19 +376,16 @@ export const CalcPvView: React.FC = () => {
                 <DateField value={d2} onChange={setD2} required className={INPUT_CLASS} />
               </div>
               {/* digitável: filtra pelo trecho do nome; a lista sugere os fornecedores do período */}
-              <input
-                list="calcpv-fornecedores"
-                value={fornecedor}
-                onChange={(e) => setFornecedor(e.target.value)}
-                placeholder="Todos os fornecedores"
-                title="Fornecedor: digite parte do nome ou escolha na lista"
-                className={`${INPUT_CLASS} !w-44`}
-              />
-              <datalist id="calcpv-fornecedores">
-                {fornecedores.map((f) => (
-                  <option key={f} value={f} />
-                ))}
-              </datalist>
+              <div className="w-44">
+                <CampoLista
+                  value={fornecedor}
+                  onChange={setFornecedor}
+                  opcoes={fornecedores}
+                  placeholder="Todos os fornecedores"
+                  title="Fornecedor: digite parte do nome ou escolha na lista"
+                  className={INPUT_CLASS}
+                />
+              </div>
               <select value={situacao} onChange={(e) => setSituacao(e.target.value)} title="Situação do cálculo do PV" className={`${INPUT_CLASS} !w-40 cursor-pointer whitespace-nowrap overflow-hidden`}>
                 <option value="">Todas as situações</option>
                 <option value="pend">Pendentes</option>
@@ -373,6 +402,7 @@ export const CalcPvView: React.FC = () => {
             { key: 'dataEmissao', label: 'Emissão', alinhar: 'centro', largura: 100, render: (c) => formatDateBR(c.dataEmissao) },
             { key: 'numero', label: 'NF', alinhar: 'numero', largura: 90 },
             { key: 'serie', label: 'Série', alinhar: 'centro', largura: 60 },
+            { key: 'cfop', label: 'CFOP', alinhar: 'centro', largura: 70 },
             {
               key: 'fornecedor',
               label: 'Fornecedor',
@@ -431,9 +461,18 @@ export const CalcPvView: React.FC = () => {
               { key: 'pvAtual', label: 'PV atual', alinhar: 'numero', largura: 100, render: (i) => formatDecimal(i.pvAtual, 2) },
               { key: 'calculado', label: 'Calculado', alinhar: 'centro', largura: 100, render: (i) => (i.calculado ? <span className="font-semibold text-emerald-700 dark:text-emerald-400">Sim</span> : <span className="text-stone-400">Não</span>) },
             ]}
-            acoes={(i) => <BotaoAcao icone={Calculator} titulo="Calcular PV" descricao="Calcular o preço de venda pelo custo desta compra e o markup" onClick={() => setItem(i)} />}
+            acoes={(i) => (
+              <>
+                <BotaoAcao icone={Calculator} titulo="Calcular PV" descricao="Calcular o preço de venda pelo custo desta compra e o markup" onClick={() => setItem(i)} />
+                {i.calculado ? (
+                  <BotaoAcao icone={Undo2} titulo="Desmarcar calculado" rotulo="Pendente" descricao="Volta o produto para pendente nesta compra (não altera o preço)" onClick={() => marcarCalculado(i, false)} />
+                ) : (
+                  <BotaoAcao icone={CheckCheck} titulo="Marcar como calculado" rotulo="Manter" tom="verde" descricao="Mantém o preço atual do cadastro e marca o produto como calculado nesta compra" onClick={() => marcarCalculado(i, true)} />
+                )}
+              </>
+            )}
           />
-          <PainelPv item={item} idCompra={compra.id} onErro={setErro} onGravado={gravado} />
+          <PainelPv item={item} idCompra={compra.id} onErro={setErro} onGravado={gravado} onManter={(i) => marcarCalculado(i, true)} />
         </div>
       )}
 

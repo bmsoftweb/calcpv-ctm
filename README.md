@@ -12,7 +12,8 @@ Criado a partir do **producaoLite**, só com a tela **Calcular PV**, em duas aba
 
 Situação do cálculo (campos sem uso no ERP em notas de compra comuns):
 - `ENTRADASPRODUTOS.OP_FLAG = 'C'`: o PV do produto foi gravado a partir desta nota (marca
-  todos os itens do mesmo produto na nota).
+  todos os itens do mesmo produto na nota). Também marcado sem gravar preço pelo botão "Manter preço atual"
+  (ou pela ação "Marcar como calculado"); "Desmarcar calculado" volta o item para pendente.
 - `ENTRADASM.TP_ASSINANTE`: vazio = não calculada, `P` = parcial, `C` = todos os itens com
   produto calculados. Recalculado a cada gravação.
 - `PRODUTOSPRINCIPAL.DENSIDADE`: quantas últimas compras entram no custo do produto (spin no painel;
@@ -67,6 +68,12 @@ acontece na versão hospedada, em que quem chama a bmAPI é o servidor na nuvem.
 `ENTRADASM`, `PESSOAS`, `ENTRADASPRODUTOS` e `PROCUSTOSEMP` (leitura); `PRODUTOSPRINCIPAL` (leitura e gravação de `LUCRO_VENDA_P1`, `PRECOVENDA1`, `DATA_ALT`, `DENSIDADE`); gravação de `ENTRADASPRODUTOS.OP_FLAG`, `ENTRADASM.TP_ASSINANTE` e `PESSOAS.TIPO_CREDIARIO`.
 
 ## Histórico
+
+### 1.0.3
+- Marcar o produto como calculado sem gravar preço ("Manter preço atual") e desmarcar.
+- Ao abrir a nota, o cálculo já vem no 1º item com produto.
+- Coluna CFOP da nota no grid de compras.
+- Lista de fornecedores própria (`CampoLista`), no visual dos selects.
 
 ### 1.0.2
 - Coluna com a quantidade de produtos da nota no grid de compras.
