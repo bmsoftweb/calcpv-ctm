@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ArrowRight, CheckCircle2, Eye, EyeOff, KeyRound, Loader2, Lock, Mail, Moon, Sun } from 'lucide-react';
 import { login, consultarServidor } from '../services/api';
 import { Usuario, Empresa, ServidorInfo } from '../types';
-import { lerLembrete, salvarLembrete, limparLembrete } from '../utils/session';
+import { lerLembrete, salvarLembrete, limparLembrete, lerTokenLembrado, lembrarToken } from '../utils/session';
 import { useTheme } from '../context/ThemeContext';
 import { AvisoErro } from '@/components/AvisoErro';
 import { Toggle } from '@/components/Toggle';
@@ -25,8 +25,8 @@ interface LoginViewProps {
 }
 
 export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
-  // Token (X-API-Key) do servidor do cliente: nunca fica guardado no navegador
-  const [tokenServidor, setTokenServidor] = useState('');
+  // Token (X-API-Key) do servidor do cliente: lembrado no navegador só com "Lembrar" marcado
+  const [tokenServidor, setTokenServidor] = useState<string>(() => lerTokenLembrado());
   const [mostrarToken, setMostrarToken] = useState(false);
   const [servidorInfo, setServidorInfo] = useState<{ identificacao: string; connected: boolean } | null>(null);
   const [checandoServidor, setChecandoServidor] = useState(false);
@@ -34,7 +34,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
   const [email, setEmail] = useState<string>(() => lerLembrete() || '');
   const [senha, setSenha] = useState('');
   const [mostrarSenha, setMostrarSenha] = useState(false);
-  const [lembrar, setLembrar] = useState<boolean>(() => !!lerLembrete());
+  const [lembrar, setLembrar] = useState<boolean>(() => !!lerLembrete() || !!lerTokenLembrado());
 
   const [entrando, setEntrando] = useState(false);
   const [erro, setErro] = useState('');
@@ -76,9 +76,10 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
     try {
       const res = await login(chave, email.trim() || 'admin', senha);
 
-      // Só o usuário é lembrado; o token do servidor não é guardado
+      // Com "Lembrar": usuário e token do servidor ficam para o próximo acesso
       if (lembrar && email.trim()) salvarLembrete(email.trim());
       else limparLembrete();
+      lembrarToken(lembrar ? chave : null);
 
       onLoginSuccess({ token: res.token, usuario: res.usuario, empresa: res.empresa, servidor: res.servidor, lembrar });
     } catch (err: any) {
@@ -279,10 +280,10 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                 size="sm"
                 label={
                   <span className="text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">
-                    Lembrar meu usuário
+                    Lembrar usuário e token
                   </span>
                 }
-                title="Traz o usuário preenchido no próximo acesso. O token do servidor nunca é guardado."
+                title="Traz o usuário e o token do servidor preenchidos no próximo acesso (ficam guardados neste navegador)."
               />
             </div>
 

@@ -69,6 +69,10 @@ acontece na versão hospedada, em que quem chama a bmAPI é o servidor na nuvem.
 
 ## Histórico
 
+### 1.0.4
+- Login: com "Lembrar usuário e token", o token do servidor também fica guardado no navegador
+  e vem preenchido no próximo acesso (como no receitaWeb).
+
 ### 1.0.3
 - Marcar o produto como calculado sem gravar preço ("Manter preço atual") e desmarcar.
 - Ao abrir a nota, o cálculo já vem no 1º item com produto.

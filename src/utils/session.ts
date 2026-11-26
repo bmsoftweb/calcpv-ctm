@@ -2,6 +2,7 @@ import { Empresa, ServidorInfo, Usuario } from '../types';
 
 const SESSAO = 'calcpv-ctm_sessao';
 const LEMBRETE = 'calcpv-ctm_lembrar_email';
+const TOKEN = 'calcpv-ctm_lembrar_token';
 
 export interface SessaoSalva {
   token: string;
@@ -55,4 +56,12 @@ export function salvarLembrete(email: string) {
 }
 export function limparLembrete() {
   seguro(() => localStorage.removeItem(LEMBRETE), undefined);
+}
+
+/** Token (X-API-Key) do servidor lembrado no navegador, quando o usuário marca "Lembrar" (como no receitaWeb) */
+export function lerTokenLembrado(): string {
+  return seguro(() => localStorage.getItem(TOKEN) || '', '');
+}
+export function lembrarToken(token: string | null) {
+  seguro(() => (token ? localStorage.setItem(TOKEN, token) : localStorage.removeItem(TOKEN)), undefined);
 }
