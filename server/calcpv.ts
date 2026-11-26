@@ -268,9 +268,12 @@ export function createCalcPvRouter() {
       if (!Number.isFinite(markup)) throw new BmapiError('Markup inválido.', 400);
       if (markup < 0) throw new BmapiError('Preço de venda abaixo do custo total.', 400);
       if (!Number.isFinite(pv) || pv <= 0) throw new BmapiError('Preço de venda inválido.', 400);
+      // custo total do cálculo (custo + IPI + frete + ST) vai para o custo de reposição
+      const custo = Math.round(Number(req.body?.custo) * 100) / 100;
+      if (!Number.isFinite(custo) || custo < 0) throw new BmapiError('Custo total inválido.', 400);
       const n = await executar(`
         UPDATE PRODUTOSPRINCIPAL SET LUCRO_VENDA_P1 = ${sqlNumero(markup)}, PRECOVENDA1 = ${sqlNumero(pv)},
-               DATA_ALT = ${sqlData(hojeISO())}
+               CUSTO_REPOSICAO = ${sqlNumero(custo)}, DATA_ALT = ${sqlData(hojeISO())}
         WHERE ID = ${sqlInteiro(req.params.id)}
       `);
       if (!n) throw new BmapiError('Produto não encontrado.', 404);

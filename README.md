@@ -65,9 +65,13 @@ acontece na versão hospedada, em que quem chama a bmAPI é o servidor na nuvem.
 
 ## Tabelas
 
-`ENTRADASM`, `PESSOAS`, `ENTRADASPRODUTOS`, `PROCUSTOSEMP` e `PRODUTOSCLASSE` (leitura); `PRODUTOSPRINCIPAL` (leitura e gravação de `LUCRO_VENDA_P1`, `PRECOVENDA1`, `DATA_ALT`, `DENSIDADE`); gravação de `ENTRADASPRODUTOS.OP_FLAG`, `ENTRADASM.TP_ASSINANTE` e `PESSOAS.TIPO_CREDIARIO`.
+`ENTRADASM`, `PESSOAS`, `ENTRADASPRODUTOS`, `PROCUSTOSEMP` e `PRODUTOSCLASSE` (leitura); `PRODUTOSPRINCIPAL` (leitura e gravação de `LUCRO_VENDA_P1`, `PRECOVENDA1`, `CUSTO_REPOSICAO` (custo total do cálculo, com IPI, frete e ST), `DATA_ALT`, `DENSIDADE`); gravação de `ENTRADASPRODUTOS.OP_FLAG`, `ENTRADASM.TP_ASSINANTE` e `PESSOAS.TIPO_CREDIARIO`.
 
 ## Histórico
+
+### 1.0.6
+- Ao gravar o PV, o custo total do cálculo (custo + IPI + frete + ST) também vai para
+  `PRODUTOSPRINCIPAL.CUSTO_REPOSICAO`.
 
 ### 1.0.5
 - Pesquisa de produtos sem passar pelas compras: código ou trecho da descrição, marca (`PRODUTOSPRINCIPAL.MARCA`)

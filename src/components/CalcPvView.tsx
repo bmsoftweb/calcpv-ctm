@@ -134,7 +134,7 @@ const PainelPv: React.FC<{
     if (!item) return;
     setSalvando(true);
     try {
-      const r = await salvarPv(item.idPro, n(v.markup), pvGravar, idCompra);
+      const r = await salvarPv(item.idPro, n(v.markup), pvGravar, Math.round(custoTotal * 100) / 100, idCompra);
       onGravado(item, pvGravar, r.situacao ?? '');
     } catch (e: any) {
       onErro(e.message || 'Erro ao gravar o preço de venda.');

@@ -166,8 +166,8 @@ export async function fetchFiltrosProdutosPv(): Promise<{ marcas: string[]; clas
 }
 
 /** Grava o markup (LUCRO_VENDA_P1) e o PV (PRECOVENDA1); com a compra, marca os itens e devolve a situação dela */
-export async function salvarPv(idPro: number, markup: number, pv: number, idCompra?: number): Promise<{ situacao?: string }> {
-  return send('PUT', `/api/calcpv/produtos/${idPro}`, { markup, pv, idCompra });
+export async function salvarPv(idPro: number, markup: number, pv: number, custo: number, idCompra?: number): Promise<{ situacao?: string }> {
+  return send('PUT', `/api/calcpv/produtos/${idPro}`, { markup, pv, custo, idCompra });
 }
 
 /** Grava no produto quantas últimas compras entram no custo (PRODUTOSPRINCIPAL.DENSIDADE) */
