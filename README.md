@@ -15,6 +15,10 @@ Situação do cálculo (campos sem uso no ERP em notas de compra comuns):
   todos os itens do mesmo produto na nota).
 - `ENTRADASM.TP_ASSINANTE`: vazio = não calculada, `P` = parcial, `C` = todos os itens com
   produto calculados. Recalculado a cada gravação.
+- `PRODUTOSPRINCIPAL.DENSIDADE`: quantas últimas compras entram no custo do produto (spin no painel;
+  vazio/0 = 4). O custo usado é o maior entre elas.
+- `PESSOAS.TIPO_CREDIARIO = 'S'`: fornecedor cujas notas não precisam ser listadas (ação
+  "Não listar notas do fornecedor" na lista de compras; o interruptor "Ocultos" mostra as notas dele de novo).
 
 - Custo total = custo × (1 + %IPI + %frete + %ST)
 - Preço de venda = custo total × (1 + %markup). Ex.: 100,00 com markup 80% = 180,00
@@ -60,9 +64,16 @@ acontece na versão hospedada, em que quem chama a bmAPI é o servidor na nuvem.
 
 ## Tabelas
 
-`ENTRADASM`, `PESSOAS`, `ENTRADASPRODUTOS` e `PROCUSTOSEMP` (leitura); `PRODUTOSPRINCIPAL` (leitura e gravação de `LUCRO_VENDA_P1`, `PRECOVENDA1`, `DATA_ALT`); gravação de `ENTRADASPRODUTOS.OP_FLAG` e `ENTRADASM.TP_ASSINANTE`.
+`ENTRADASM`, `PESSOAS`, `ENTRADASPRODUTOS` e `PROCUSTOSEMP` (leitura); `PRODUTOSPRINCIPAL` (leitura e gravação de `LUCRO_VENDA_P1`, `PRECOVENDA1`, `DATA_ALT`, `DENSIDADE`); gravação de `ENTRADASPRODUTOS.OP_FLAG`, `ENTRADASM.TP_ASSINANTE` e `PESSOAS.TIPO_CREDIARIO`.
 
 ## Histórico
+
+### 1.0.2
+- Coluna com a quantidade de produtos da nota no grid de compras.
+- Fornecedor marcado para não listar as notas (`PESSOAS.TIPO_CREDIARIO`), com o interruptor "Ocultos".
+- Filtro de fornecedor digitável (trecho do nome), com o chevron cinza.
+- Últimas compras do produto no painel (data, fornecedor, custo), com spin de 1 a 20 gravado por
+  produto (`PRODUTOSPRINCIPAL.DENSIDADE`, padrão 4); o custo do cálculo é o maior entre elas.
 
 ### 1.0.1
 - Lista de compras (notas de entrada) antes dos produtos, a mais recente primeiro, só as que têm produto;

@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Calculator, Loader2, Save } from 'lucide-react';
-import { fetchComprasPv, fetchItensCompraPv, fetchCustoPv, salvarPv, CompraPv, ItemCompraPv } from '../services/api';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeft, Calculator, Eye, EyeOff, Loader2, Minus, Plus, Save } from 'lucide-react';
+import { fetchComprasPv, fetchItensCompraPv, fetchCustoPv, salvarPv, salvarQtdComprasPv, ocultarFornecedorPv, CompraPv, ItemCompraPv } from '../services/api';
 import { formatCurrencyBRL, formatDateBR, formatDecimal, formatQtd, hojeISO } from '../utils/formatters';
 import { useRefreshDaTela } from '@/components/LayoutApp';
 import { ListaCrm } from '@/components/ListaCrm';
@@ -8,6 +8,7 @@ import { INPUT_CLASS, LABEL_CLASS } from '@/components/FormCrm';
 import { BotaoAcao } from '@/components/MenuAcoes';
 import { AvisoErro } from '@/components/AvisoErro';
 import { NumberField } from './NumberField';
+import { Toggle } from './Toggle';
 import { DateField } from './DateField';
 
 /** Custo total = custo × (1 + %IPI + %frete + %ST); PV = custo total × (1 + markup%). Ex.: 100 com markup 80% = 180,00 */
@@ -52,15 +53,38 @@ const notaTexto = (c: CompraPv) => `NF ${c.numero}${c.serie ? `/${c.serie}` : ''
 const PainelPv: React.FC<{
   item: ItemCompraPv | null;
   idCompra: number;
-  origem: string;
   onErro: (m: string) => void;
   onGravado: (item: ItemCompraPv, pv: number, situacao: string) => void;
-}> = ({ item, idCompra, origem, onErro, onGravado }) => {
+}> = ({ item, idCompra, onErro, onGravado }) => {
   const [carregando, setCarregando] = useState(false);
   const [v, setV] = useState({ custo: '', ipi: '', frete: '', st: '', markup: '' });
   const [salvando, setSalvando] = useState(false);
   /** PV acertado à mão (null = o calculado); ao acertar, o markup é recalculado a partir dele */
   const [pvAjustado, setPvAjustado] = useState<string | null>(null);
+  /** compras do produto vindas do servidor (até 20); a lista mostra as `qtdUltimas` primeiras */
+  const [compras, setCompras] = useState<{ dataEntrada: string | null; fornecedor: string; custo: number }[]>([]);
+  /** quantas últimas compras entram no custo: gravado por produto (DENSIDADE), padrão 4 */
+  const [qtdUltimas, setQtdUltimas] = useState(4);
+  const gravarQtd = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const ultimas = compras.slice(0, qtdUltimas);
+  /** maior custo entre as `qtd` últimas compras; sem histórico, o custo do item nesta nota */
+  const custoBase = (lista: typeof compras, qtd: number) => {
+    const l = lista.slice(0, qtd);
+    return (l.length ? Math.max(...l.map((u) => u.custo)) : (item?.custo ?? 0)).toFixed(2);
+  };
+  const mudaQtdUltimas = (qtd: number) => {
+    const q = Math.min(Math.max(qtd, 1), 20);
+    setQtdUltimas(q);
+    setPvAjustado(null);
+    setV((s) => ({ ...s, custo: custoBase(compras, q) }));
+    // grava no produto depois que o usuário para de clicar no spin
+    if (!item) return;
+    const idPro = item.idPro;
+    clearTimeout(gravarQtd.current);
+    gravarQtd.current = setTimeout(() => {
+      salvarQtdComprasPv(idPro, q).catch((e) => onErro(e.message || 'Erro ao gravar o número de compras do produto.'));
+    }, 600);
+  };
 
   useEffect(() => {
     if (!item) return;
@@ -70,9 +94,12 @@ const PainelPv: React.FC<{
     fetchCustoPv(item.idPro)
       .then((c) => {
         if (!valido) return;
+        const qtd = c.qtdCompras > 0 ? Math.min(c.qtdCompras, 20) : 4;
+        setCompras(c.ultimasCompras);
+        setQtdUltimas(qtd);
         setV((s) => ({
           ...s,
-          custo: item.custo.toFixed(2),
+          custo: custoBase(c.ultimasCompras, qtd),
           ipi: c.ipi.toFixed(2),
           frete: c.frete.toFixed(2),
           st: c.st.toFixed(2),
@@ -87,6 +114,7 @@ const PainelPv: React.FC<{
   }, [item?.id, onErro]);
 
   const n = (s: string) => Number(s) || 0;
+  const maiorCusto = ultimas.length ? Math.max(...ultimas.map((u) => u.custo)) : null;
   const { custoTotal, pv } = calcularPv(n(v.custo), n(v.ipi), n(v.frete), n(v.st), n(v.markup));
   const muda = (k: keyof typeof v) => (valor: string) => {
     setPvAjustado(null);
@@ -133,7 +161,7 @@ const PainelPv: React.FC<{
             <Campo rotulo="Preço de custo">
               <NumberField scale={2} value={v.custo} onChange={muda('custo')} className={INPUT_CLASS} />
             </Campo>
-            <p className="-mt-2 text-[11px] text-stone-400">{origem}</p>
+            <p className="-mt-2 text-[11px] text-stone-400">Maior custo das últimas compras</p>
             <div className="grid grid-cols-3 gap-3">
               <Campo rotulo="% IPI">
                 <NumberField scale={2} value={v.ipi} onChange={muda('ipi')} className={INPUT_CLASS} />
@@ -165,6 +193,43 @@ const PainelPv: React.FC<{
               {salvando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               Gravar markup e preço de venda
             </button>
+            <div className="pt-3">
+              <div className="flex items-center justify-between mb-1.5">
+                <p className={LABEL_CLASS}>Últimas compras do produto</p>
+                {/* spin: quantas compras entram na lista (e no maior custo) */}
+                <div className="flex items-center rounded-md border border-stone-200 dark:border-stone-700 overflow-hidden" title="Quantas compras mostrar (o custo é o maior entre elas)">
+                  <button type="button" onClick={() => mudaQtdUltimas(qtdUltimas - 1)} disabled={qtdUltimas <= 1} className="w-6 h-6 flex items-center justify-center text-stone-500 hover:bg-marca-50 hover:text-marca-700 disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed dark:hover:bg-marca-950/40" title="Mostrar uma compra a menos">
+                    <Minus className="w-3 h-3" />
+                  </button>
+                  <span className="w-6 text-center text-[11px] font-semibold text-stone-700 dark:text-stone-200 tabular-nums">{qtdUltimas}</span>
+                  <button type="button" onClick={() => mudaQtdUltimas(qtdUltimas + 1)} disabled={qtdUltimas >= 20} className="w-6 h-6 flex items-center justify-center text-stone-500 hover:bg-marca-50 hover:text-marca-700 disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer disabled:cursor-not-allowed dark:hover:bg-marca-950/40" title="Mostrar uma compra a mais">
+                    <Plus className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+              {ultimas.length === 0 ? (
+                <p className="text-[11px] text-stone-400">Nenhuma compra encontrada.</p>
+              ) : (
+                <table className="w-full text-[11px]">
+                  <thead>
+                    <tr className="text-stone-500 dark:text-stone-400 border-b border-stone-200 dark:border-stone-800">
+                      <th className="py-1 pr-2 font-semibold text-center">Data</th>
+                      <th className="py-1 pr-2 font-semibold text-left">Fornecedor</th>
+                      <th className="py-1 font-semibold text-right">Custo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ultimas.map((u, i) => (
+                      <tr key={i} className={`border-b border-stone-100 dark:border-stone-800/60 ${u.custo === maiorCusto ? 'font-semibold text-marca-700 dark:text-marca-300' : 'text-stone-700 dark:text-stone-300'}`}>
+                        <td className="py-1.5 pr-2 text-center whitespace-nowrap">{formatDateBR(u.dataEntrada)}</td>
+                        <td className="py-1.5 pr-2 max-w-0 w-full truncate" title={u.fornecedor}>{u.fornecedor || '—'}</td>
+                        <td className="py-1.5 text-right font-mono whitespace-nowrap">{formatDecimal(u.custo, 2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -184,6 +249,8 @@ export const CalcPvView: React.FC = () => {
   const [fornecedor, setFornecedor] = useState('');
   /** '' todas, 'pend' não calculadas + parciais, 'N' não calculadas, 'P' parciais, 'C' calculadas */
   const [situacao, setSituacao] = useState('');
+  /** Mostra também as notas dos fornecedores marcados para não listar */
+  const [verOcultos, setVerOcultos] = useState(false);
   const [carregandoCompras, setCarregandoCompras] = useState(true);
   const [compra, setCompra] = useState<CompraPv | null>(null);
   const [itens, setItens] = useState<ItemCompraPv[]>([]);
@@ -217,11 +284,12 @@ export const CalcPvView: React.FC = () => {
 
   useEffect(() => void carregarCompras(), [carregarCompras]);
 
+  const comprasVisiveis = useMemo(() => (verOcultos ? compras : compras.filter((c) => !c.fornecedorOculto)), [compras, verOcultos]);
   // Fornecedores das compras do período, para o filtro
-  const fornecedores = useMemo(() => [...new Set(compras.map((c) => c.fornecedor).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')), [compras]);
-  const comprasFiltradas = compras.filter(
+  const fornecedores = useMemo(() => [...new Set(comprasVisiveis.map((c) => c.fornecedor).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')), [comprasVisiveis]);
+  const comprasFiltradas = comprasVisiveis.filter(
     (c) =>
-      (!fornecedor || c.fornecedor === fornecedor) &&
+      (!fornecedor || c.fornecedor.toLocaleLowerCase('pt-BR').includes(fornecedor.trim().toLocaleLowerCase('pt-BR'))) &&
       (!situacao || (situacao === 'pend' ? c.situacao !== 'C' : (c.situacao || 'N') === situacao)),
   );
   useRefreshDaTela(() => (aba === 'compras' ? carregarCompras() : compra && carregarItens(compra)));
@@ -233,6 +301,17 @@ export const CalcPvView: React.FC = () => {
     setItem(null);
     setItens([]);
     carregarItens(c);
+  };
+
+  const ocultarFornecedor = async (c: CompraPv, ocultar: boolean) => {
+    try {
+      await ocultarFornecedorPv(c.idFornecedor, ocultar);
+      setCompras((lista) => lista.map((x) => (x.idFornecedor === c.idFornecedor ? { ...x, fornecedorOculto: ocultar } : x)));
+      if (ocultar && c.fornecedor === fornecedor) setFornecedor('');
+      setSucesso(ocultar ? `As notas de "${c.fornecedor}" não serão mais listadas.` : `As notas de "${c.fornecedor}" voltam a ser listadas.`);
+    } catch (err: any) {
+      setErro(err.message || 'Erro ao gravar o fornecedor.');
+    }
   };
 
   const gravado = (it: ItemCompraPv, pv: number, situacao: string) => {
@@ -264,22 +343,28 @@ export const CalcPvView: React.FC = () => {
               <div className="w-36">
                 <DateField value={d2} onChange={setD2} required className={INPUT_CLASS} />
               </div>
-              <select value={fornecedor} onChange={(e) => setFornecedor(e.target.value)} title="Fornecedor" className={`${INPUT_CLASS} !w-52 cursor-pointer whitespace-nowrap overflow-hidden`}>
-                <option value="">Todos os fornecedores</option>
-                {fornecedor && !fornecedores.includes(fornecedor) && <option value={fornecedor}>{fornecedor}</option>}
+              {/* digitável: filtra pelo trecho do nome; a lista sugere os fornecedores do período */}
+              <input
+                list="calcpv-fornecedores"
+                value={fornecedor}
+                onChange={(e) => setFornecedor(e.target.value)}
+                placeholder="Todos os fornecedores"
+                title="Fornecedor: digite parte do nome ou escolha na lista"
+                className={`${INPUT_CLASS} !w-44`}
+              />
+              <datalist id="calcpv-fornecedores">
                 {fornecedores.map((f) => (
-                  <option key={f} value={f}>
-                    {f}
-                  </option>
+                  <option key={f} value={f} />
                 ))}
-              </select>
-              <select value={situacao} onChange={(e) => setSituacao(e.target.value)} title="Situação do cálculo do PV" className={`${INPUT_CLASS} !w-36 cursor-pointer whitespace-nowrap overflow-hidden`}>
+              </datalist>
+              <select value={situacao} onChange={(e) => setSituacao(e.target.value)} title="Situação do cálculo do PV" className={`${INPUT_CLASS} !w-40 cursor-pointer whitespace-nowrap overflow-hidden`}>
                 <option value="">Todas as situações</option>
                 <option value="pend">Pendentes</option>
                 <option value="N">Não calculadas</option>
                 <option value="P">Parciais</option>
                 <option value="C">Calculadas</option>
               </select>
+              <Toggle size="sm" checked={verOcultos} onChange={setVerOcultos} label={<span className="text-[11px] text-stone-500 whitespace-nowrap">Ocultos</span>} title="Mostrar também as notas dos fornecedores marcados para não listar" />
             </div>
           }
           vazio={fornecedor || situacao ? 'Nenhuma compra no período com estes filtros.' : 'Nenhuma compra no período.'}
@@ -288,11 +373,26 @@ export const CalcPvView: React.FC = () => {
             { key: 'dataEmissao', label: 'Emissão', alinhar: 'centro', largura: 100, render: (c) => formatDateBR(c.dataEmissao) },
             { key: 'numero', label: 'NF', alinhar: 'numero', largura: 90 },
             { key: 'serie', label: 'Série', alinhar: 'centro', largura: 60 },
-            { key: 'fornecedor', label: 'Fornecedor', largura: 360 },
+            {
+              key: 'fornecedor',
+              label: 'Fornecedor',
+              largura: 360,
+              render: (c) => (c.fornecedorOculto ? <span className="text-stone-400">{c.fornecedor} <span className="text-[10px] italic">(oculto)</span></span> : c.fornecedor),
+            },
+            { key: 'produtos', label: 'Produtos', alinhar: 'numero', largura: 90 },
             { key: 'total', label: 'Total da nota', alinhar: 'numero', largura: 130, render: (c) => formatDecimal(c.total, 2) },
             { key: 'situacao', label: 'Cálculo do PV', alinhar: 'centro', largura: 130, render: (c) => <Situacao valor={c.situacao} /> },
           ]}
-          acoes={(c) => <BotaoAcao icone={Calculator} titulo="Abrir compra" descricao="Ver os produtos da compra e calcular o preço de venda" onClick={() => abrirCompra(c)} />}
+          acoes={(c) => (
+            <>
+              <BotaoAcao icone={Calculator} titulo="Abrir compra" descricao="Ver os produtos da compra e calcular o preço de venda" onClick={() => abrirCompra(c)} />
+              {c.fornecedorOculto ? (
+                <BotaoAcao icone={Eye} titulo="Listar notas do fornecedor" rotulo="Listar" descricao="Voltar a mostrar as notas deste fornecedor na lista de compras" onClick={() => ocultarFornecedor(c, false)} />
+              ) : (
+                <BotaoAcao icone={EyeOff} titulo="Não listar notas do fornecedor" rotulo="Ocultar" descricao="Este fornecedor não precisa de cálculo de PV: as notas dele deixam de aparecer na lista" onClick={() => ocultarFornecedor(c, true)} />
+              )}
+            </>
+          )}
         />
       </div>
 
@@ -333,7 +433,7 @@ export const CalcPvView: React.FC = () => {
             ]}
             acoes={(i) => <BotaoAcao icone={Calculator} titulo="Calcular PV" descricao="Calcular o preço de venda pelo custo desta compra e o markup" onClick={() => setItem(i)} />}
           />
-          <PainelPv item={item} idCompra={compra.id} origem={notaTexto(compra)} onErro={setErro} onGravado={gravado} />
+          <PainelPv item={item} idCompra={compra.id} onErro={setErro} onGravado={gravado} />
         </div>
       )}
 

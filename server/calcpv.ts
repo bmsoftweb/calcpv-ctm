@@ -39,7 +39,7 @@ export function createCalcPvRouter() {
       // ponytail: TOP 1000 por período; paginação no servidor se um período passar disso
       const rows = await consultar(
         `SELECT M.ID id, M.NUMERO numero, M.SERIE serie, M.DATA_EMISSAO data_emissao, M.DATA_ENTRADA data_entrada,
-                M.TOTAL_NOTA total, M.TP_ASSINANTE situacao, F.NOME fornecedor
+                M.TOTAL_NOTA total, M.TP_ASSINANTE situacao, F.ID id_fornec, F.NOME fornecedor, F.TIPO_CREDIARIO oculto
          FROM ENTRADASM M
          LEFT JOIN PESSOAS F ON F.ID = M.ID_FORNEC
          WHERE M.ID_EMPRESA = :emp
@@ -49,21 +49,41 @@ export function createCalcPvRouter() {
          ORDER BY data_entrada DESC, id DESC TOP 1000`,
         { emp: config.idEmpresa },
       );
-      // só notas com produto (ENTRADASPRODUTOS.ID_PRODUTO > 0): notas de serviço/despesa ficam de fora
+      // quantidade de itens com produto (ENTRADASPRODUTOS.ID_PRODUTO > 0) por nota;
+      // notas sem nenhum (serviço/despesa) ficam de fora
       const ids = rows.map((r) => sqlInteiro(r.id));
-      const comProduto = new Set(ids.length ? (await consultar(
-        `SELECT ID_NF id FROM ENTRADASPRODUTOS WHERE ID_NF IN (${ids.join(',')}) AND ID_PRODUTO > 0 GROUP BY ID_NF`,
-      )).map((r) => Number(r.id)) : []);
-      res.json(rows.filter((r) => comProduto.has(Number(r.id))).map((r) => ({
+      const produtos = new Map(ids.length ? (await consultar(
+        `SELECT ID_NF id, COUNT(*) n FROM ENTRADASPRODUTOS WHERE ID_NF IN (${ids.join(',')}) AND ID_PRODUTO > 0 GROUP BY ID_NF`,
+      )).map((r) => [Number(r.id), Number(r.n || 0)]) : []);
+      res.json(rows.filter((r) => produtos.get(Number(r.id))).map((r) => ({
         id: Number(r.id),
         numero: Number(r.numero || 0),
         serie: String(r.serie || '').trim(),
         dataEmissao: r.data_emissao ? String(r.data_emissao).slice(0, 10) : null,
         dataEntrada: r.data_entrada ? String(r.data_entrada).slice(0, 10) : null,
         total: Number(r.total || 0),
+        produtos: produtos.get(Number(r.id)) || 0,
+        idFornecedor: Number(r.id_fornec || 0),
         fornecedor: String(r.fornecedor || '').trim(),
+        fornecedorOculto: String(r.oculto || '').trim() === 'S',
         situacao: String(r.situacao || '').trim(),
       })));
+    } catch (err: any) {
+      res.status(err?.status || 500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * PUT /api/calcpv/fornecedores/:id : marca (ocultar=true) ou desmarca o fornecedor cujas notas não
+   * precisam aparecer na lista de compras. Campo sem uso no ERP: PESSOAS.TIPO_CREDIARIO = 'S'.
+   */
+  router.put('/calcpv/fornecedores/:id', async (req: Request, res: Response) => {
+    try {
+      const n = await executar(
+        `UPDATE PESSOAS SET TIPO_CREDIARIO = '${req.body?.ocultar ? 'S' : ''}' WHERE ID = ${sqlInteiro(req.params.id)}`,
+      );
+      if (!n) throw new BmapiError('Fornecedor não encontrado.', 404);
+      res.json({ ok: true });
     } catch (err: any) {
       res.status(err?.status || 500).json({ error: err.message });
     }
@@ -107,15 +127,16 @@ export function createCalcPvRouter() {
   router.get('/calcpv/custo/:idPro', async (req: Request, res: Response) => {
     try {
       const params = { emp: config.idEmpresa, pro: Number(req.params.idPro) };
-      const [row, pc, pp] = await Promise.all([
-        consultarUm(
-          `SELECT P.CUSTO_UNIT custo, M.NUMERO numero, M.DATA_ENTRADA data_entrada, P.ID id
+      const [ultimas, pc, pp] = await Promise.all([
+        consultar(
+          `SELECT P.CUSTO_UNIT custo, M.NUMERO numero, M.DATA_ENTRADA data_entrada, P.ID id, F.NOME fornecedor
            FROM ENTRADASPRODUTOS P
            JOIN ENTRADASM M ON M.ID = P.ID_NF
+           LEFT JOIN PESSOAS F ON F.ID = M.ID_FORNEC
            WHERE P.ID_PRODUTO = :pro AND M.ID_EMPRESA = :emp
              AND (M.CANCELADO IS NULL OR M.CANCELADO <> 'S')
              AND (M.DEVOLUCAO IS NULL OR M.DEVOLUCAO <> 'S')
-           ORDER BY data_entrada DESC, id DESC TOP 1`,
+           ORDER BY data_entrada DESC, id DESC TOP 20`,
           params,
         ),
         consultarUm(
@@ -123,17 +144,26 @@ export function createCalcPvRouter() {
            FROM PROCUSTOSEMP WHERE ID_EMPRESA = :emp AND ID_PRODUTO = :pro ORDER BY id TOP 1`,
           params,
         ),
-        consultarUm(`SELECT LUCRO_VENDA_P1 markup, PRECOVENDA1 pv FROM PRODUTOSPRINCIPAL WHERE ID = :pro`, params),
+        consultarUm(`SELECT LUCRO_VENDA_P1 markup, PRECOVENDA1 pv, DENSIDADE qtd_compras FROM PRODUTOSPRINCIPAL WHERE ID = :pro`, params),
       ]);
+      const row = ultimas[0];
       res.json({
         custo: Number(row?.custo || 0),
         ipi: Number(pc?.ipi || 0),
         frete: Number(pc?.frete || 0),
         st: Number(pc?.st || 0),
         markupAtual: Number(pp?.markup || 0),
+        // nº de últimas compras usado no cálculo, gravado no produto (DENSIDADE, sem uso no ERP); 0 = padrão 4
+        qtdCompras: Number(pp?.qtd_compras || 0),
         pvAtual: Number(pp?.pv || 0),
         nota: row ? Number(row.numero || 0) : null,
         dataEntrada: row?.data_entrada ? String(row.data_entrada).slice(0, 10) : null,
+        // últimas 20 compras do produto (a tela mostra quantas o usuário escolher, padrão 4) (a mais recente primeiro)
+        ultimasCompras: ultimas.map((r) => ({
+          dataEntrada: r.data_entrada ? String(r.data_entrada).slice(0, 10) : null,
+          fornecedor: String(r.fornecedor || '').trim(),
+          custo: Number(r.custo || 0),
+        })),
       });
     } catch (err: any) {
       res.status(err?.status || 500).json({ error: err.message });
@@ -144,6 +174,19 @@ export function createCalcPvRouter() {
    * PUT /api/calcpv/produtos/:id : grava o markup (LUCRO_VENDA_P1) e o PV calculado (PRECOVENDA1).
    * Com idCompra, marca os itens do produto na nota (OP_FLAG = 'C') e recalcula a situação da compra.
    */
+  /** PUT /api/calcpv/produtos/:id/compras : grava no produto quantas últimas compras entram no custo (DENSIDADE) */
+  router.put('/calcpv/produtos/:id/compras', async (req: Request, res: Response) => {
+    try {
+      const qtd = Number(req.body?.qtd);
+      if (!Number.isInteger(qtd) || qtd < 1 || qtd > 20) throw new BmapiError('Número de compras inválido (1 a 20).', 400);
+      const n = await executar(`UPDATE PRODUTOSPRINCIPAL SET DENSIDADE = ${sqlInteiro(qtd)} WHERE ID = ${sqlInteiro(req.params.id)}`);
+      if (!n) throw new BmapiError('Produto não encontrado.', 404);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(err?.status || 500).json({ error: err.message });
+    }
+  });
+
   router.put('/calcpv/produtos/:id', async (req: Request, res: Response) => {
     try {
       const markup = Number(req.body?.markup);

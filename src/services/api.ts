@@ -99,7 +99,12 @@ export interface CompraPv {
   dataEmissao: string | null;
   dataEntrada: string | null;
   total: number;
+  /** itens da nota com produto */
+  produtos: number;
+  idFornecedor: number;
   fornecedor: string;
+  /** PESSOAS.TIPO_CREDIARIO = 'S': fornecedor cujas notas não precisam ser listadas */
+  fornecedorOculto: boolean;
   /** ENTRADASM.TP_ASSINANTE: '' não calculada, 'P' parcial, 'C' calculada */
   situacao: string;
 }
@@ -123,16 +128,26 @@ export async function fetchComprasPv(d1: string, d2: string): Promise<CompraPv[]
   return get(`/api/calcpv/compras?d1=${d1}&d2=${d2}`);
 }
 
+/** Marca/desmarca o fornecedor cujas notas não precisam aparecer na lista de compras */
+export async function ocultarFornecedorPv(idFornecedor: number, ocultar: boolean): Promise<void> {
+  await send('PUT', `/api/calcpv/fornecedores/${idFornecedor}`, { ocultar });
+}
+
 /** Produtos da compra (ENTRADASPRODUTOS) */
 export async function fetchItensCompraPv(idCompra: number): Promise<ItemCompraPv[]> {
   return get(`/api/calcpv/compras/${idCompra}/itens`);
 }
 
-export async function fetchCustoPv(idPro: number): Promise<{ custo: number; ipi: number; frete: number; st: number; markupAtual: number; pvAtual: number; nota: number | null; dataEntrada: string | null }> {
+export async function fetchCustoPv(idPro: number): Promise<{ custo: number; ipi: number; frete: number; st: number; markupAtual: number; qtdCompras: number; pvAtual: number; nota: number | null; dataEntrada: string | null; ultimasCompras: { dataEntrada: string | null; fornecedor: string; custo: number }[] }> {
   return get(`/api/calcpv/custo/${idPro}`);
 }
 
 /** Grava o markup (LUCRO_VENDA_P1) e o PV (PRECOVENDA1); com a compra, marca os itens e devolve a situação dela */
 export async function salvarPv(idPro: number, markup: number, pv: number, idCompra?: number): Promise<{ situacao?: string }> {
   return send('PUT', `/api/calcpv/produtos/${idPro}`, { markup, pv, idCompra });
+}
+
+/** Grava no produto quantas últimas compras entram no custo (PRODUTOSPRINCIPAL.DENSIDADE) */
+export async function salvarQtdComprasPv(idPro: number, qtd: number): Promise<void> {
+  await send('PUT', `/api/calcpv/produtos/${idPro}/compras`, { qtd });
 }
