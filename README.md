@@ -65,9 +65,13 @@ acontece na versão hospedada, em que quem chama a bmAPI é o servidor na nuvem.
 
 ## Tabelas
 
-`ENTRADASM`, `PESSOAS`, `ENTRADASPRODUTOS`, `PROCUSTOSEMP` e `PRODUTOSCLASSE` (leitura); `PRODUTOSPRINCIPAL` (leitura e gravação de `LUCRO_VENDA_P1`, `PRECOVENDA1`, `CUSTO_REPOSICAO` (custo total do cálculo, com IPI, frete e ST), `DATA_ALT`, `DENSIDADE`); gravação de `ENTRADASPRODUTOS.OP_FLAG`, `ENTRADASM.TP_ASSINANTE` e `PESSOAS.TIPO_CREDIARIO`.
+`ENTRADASM`, `PESSOAS`, `ENTRADASPRODUTOS`, `PROCUSTOSEMP` e `PRODUTOSCLASSE` (leitura); `PRODUTOSPRINCIPAL` (leitura e gravação de `LUCRO_VENDA_P1`, `PRECOVENDA1`, `CUSTO_REPOSICAO` (custo total do cálculo, com IPI, frete e ST), `DATA_ALT`, `DENSIDADE`); gravação de `PROPRECOALTER` (histórico, quando o PV muda), `ENTRADASPRODUTOS.OP_FLAG`, `ENTRADASM.TP_ASSINANTE` e `PESSOAS.TIPO_CREDIARIO`.
 
 ## Histórico
+
+### 1.0.7
+- Alteração do PV registrada no histórico de preços do ERP (`PROPRECOALTER`: lista 1, preço anterior e novo,
+  usuário do ERP de `WEB_USUARIOS.ID_BM`, info "CalcPV-CTM"), só quando o preço muda.
 
 ### 1.0.6
 - Ao gravar o PV, o custo total do cálculo (custo + IPI + frete + ST) também vai para

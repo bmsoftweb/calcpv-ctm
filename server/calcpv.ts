@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { consultar, consultarUm, executar, sqlInteiro, sqlNumero, sqlData, sqlTexto, hojeISO, BmapiError } from './bmapi.js';
+import { consultar, consultarUm, executar, sqlInteiro, sqlNumero, sqlData, sqlTexto, hojeISO, agoraISO, BmapiError } from './bmapi.js';
 import { config } from './config.js';
 
 /**
@@ -271,12 +271,24 @@ export function createCalcPvRouter() {
       // custo total do cálculo (custo + IPI + frete + ST) vai para o custo de reposição
       const custo = Math.round(Number(req.body?.custo) * 100) / 100;
       if (!Number.isFinite(custo) || custo < 0) throw new BmapiError('Custo total inválido.', 400);
+      const atual = await consultarUm(`SELECT PRECOVENDA1 pv FROM PRODUTOSPRINCIPAL WHERE ID = ${sqlInteiro(req.params.id)}`);
+      if (!atual) throw new BmapiError('Produto não encontrado.', 404);
+      const pvAnt = Math.round(Number(atual.pv || 0) * 100) / 100;
       const n = await executar(`
         UPDATE PRODUTOSPRINCIPAL SET LUCRO_VENDA_P1 = ${sqlNumero(markup)}, PRECOVENDA1 = ${sqlNumero(pv)},
                CUSTO_REPOSICAO = ${sqlNumero(custo)}, DATA_ALT = ${sqlData(hojeISO())}
         WHERE ID = ${sqlInteiro(req.params.id)}
       `);
       if (!n) throw new BmapiError('Produto não encontrado.', 404);
+      // histórico de alteração de preço do ERP (lista 1), só quando o PV mudou
+      if (pv !== pvAnt) {
+        const agora = agoraISO();
+        await executar(`
+          INSERT INTO PROPRECOALTER (ID_PRODUTO, DATA, HORA, LISTA, PRECO_ANT, PRECO_NOVO, ID_USUARIO, INFO)
+          VALUES (${sqlInteiro(req.params.id)}, ${sqlData(agora)}, ${sqlTexto(agora.slice(11, 19))}, '1',
+                  ${sqlNumero(pvAnt)}, ${sqlNumero(pv)}, ${sqlInteiro(req.usuario?.idBm || 0)}, ${sqlTexto('CalcPV-CTM', 30)})
+        `);
+      }
       const idCompra = Number(req.body?.idCompra) || 0;
       if (!idCompra) return res.json({ ok: true });
       await executar(

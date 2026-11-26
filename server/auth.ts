@@ -19,6 +19,8 @@ export type Nivel = 'A' | 'G' | 'S' | 'V' | 'C';
 
 export interface UsuarioSessao {
   id: number;
+  /** usuário do ERP (WEB_USUARIOS.ID_BM); 0 = sem vínculo */
+  idBm: number;
   idPessoa: number;
   idEmpresa: number;
   nome: string;
@@ -100,6 +102,7 @@ function montarUsuario(row: Record<string, any>): UsuarioSessao {
   const nivel = (['A', 'G', 'S', 'V', 'C'].includes(letra) ? letra : 'C') as Nivel;
   return {
     id: Number(row.id),
+    idBm: Number(row.id_bm || 0),
     idPessoa: Number(row.id_pessoa || 0),
     idEmpresa: Number(row.id_empresa || config.idEmpresa),
     nome: String(row.nome_usuario || '').trim(),
@@ -127,6 +130,7 @@ export function usuarioPadrao(emailInformado?: string): UsuarioSessao {
     : (emailInformado || 'Administrador');
   return {
     id: 1,
+    idBm: 0,
     idPessoa: 0,
     idEmpresa: config.idEmpresa,
     nome: nomeDisplay || 'Administrador',
